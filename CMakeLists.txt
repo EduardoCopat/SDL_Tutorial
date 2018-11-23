@@ -20,7 +20,8 @@ configure_file("${PROJECT_SOURCE_DIR}/lib/SDL2-2.0.9/i686-w64-mingw32/bin/SDL2.d
 
 ### END SDL
 
-configure_file(hello_world.bmp hello_world.bmp COPYONLY)
+configure_file(resources/hello_world.bmp resources/hello_world.bmp COPYONLY)
+configure_file(resources/x.bmp resources/x.bmp COPYONLY)
 
 add_executable(SDL_Tutorial main.cpp)
 target_link_libraries(SDL_Tutorial ${SDL2_LIBRARY} mingw32  )
