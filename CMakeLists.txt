@@ -59,8 +59,6 @@ include_directories(${SDL2_MIXER_INCLUDE_DIR} )
 ### Copy all SDL mixer DLLs
 
 file(COPY ${PROJECT_SOURCE_DIR}/lib/SDL2_mixer-2.0.4/i686-w64-mingw32/bin/ DESTINATION /)
-#configure_file("${PROJECT_SOURCE_DIR}/lib/SDL2_ttf-2.0.14/i686-w64-mingw32/bin/SDL2_ttf.dll" SDL2_ttf.dll COPYONLY)
-#configure_file("${PROJECT_SOURCE_DIR}/lib/SDL2_ttf-2.0.14/i686-w64-mingw32/bin/libfreetype-6.dll" libfreetype-6.dll COPYONLY)
 
 # END SDL
 file(COPY resources DESTINATION /)
