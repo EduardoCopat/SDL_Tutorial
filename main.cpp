@@ -1,19 +1,15 @@
 /*This source code copyrighted by Lazy Foo' Productions (2004-2015)
 and may not be redistributed without written permission.*/
 
-//Using SDL, SDL_image, SDL_ttf, standard IO, strings, and string streams
+//Using SDL, SDL_image, standard IO, and strings
 #include <SDL.h>
 #include <SDL_image.h>
-#include <SDL_ttf.h>
 #include <stdio.h>
 #include <string>
-#include <sstream>
 
 //Screen dimension constants
 const int SCREEN_WIDTH = 640;
 const int SCREEN_HEIGHT = 480;
-const int SCREEN_FPS = 30;
-const int SCREEN_TICK_PER_FRAME = 1000 / SCREEN_FPS;
 
 //Texture wrapper class
 class LTexture
@@ -30,7 +26,7 @@ public:
 
 #ifdef _SDL_TTF_H
     //Creates image from font string
-    bool loadFromRenderedText( std::string textureText, SDL_Color textColor );
+		bool loadFromRenderedText( std::string textureText, SDL_Color textColor );
 #endif
 
     //Deallocates texture
@@ -61,36 +57,38 @@ private:
     int mHeight;
 };
 
-//The application time based timer
-class LTimer
+//The dot that will move around on the screen
+class Dot
 {
 public:
-    //Initializes variables
-    LTimer();
+    //The dimensions of the dot
+    static const int DOT_WIDTH = 20;
+    static const int DOT_HEIGHT = 20;
 
-    //The various clock actions
-    void start();
-    void stop();
-    void pause();
-    void unpause();
+    //Maximum axis velocity of the dot
+    static const int DOT_VEL = 10;
 
-    //Gets the timer's time
-    Uint32 getTicks();
+    //Initializes the variables
+    Dot();
 
-    //Checks the status of the timer
-    bool isStarted();
-    bool isPaused();
+    //Takes key presses and adjusts the dot's velocity
+    void handleEvent( SDL_Event& e );
+
+    //Moves the dot and checks collision
+    void move( SDL_Rect& wall );
+
+    //Shows the dot on the screen
+    void render();
 
 private:
-    //The clock time when the timer started
-    Uint32 mStartTicks;
+    //The X and Y offsets of the dot
+    int mPosX, mPosY;
 
-    //The ticks stored when the timer was paused
-    Uint32 mPausedTicks;
+    //The velocity of the dot
+    int mVelX, mVelY;
 
-    //The timer status
-    bool mPaused;
-    bool mStarted;
+    //Dot's collision box
+    SDL_Rect mCollider;
 };
 
 //Starts up SDL and creates window
@@ -102,17 +100,17 @@ bool loadMedia();
 //Frees media and shuts down SDL
 void close();
 
+//Box collision detector
+bool checkCollision( SDL_Rect a, SDL_Rect b );
+
 //The window we'll be rendering to
 SDL_Window* gWindow = NULL;
 
 //The window renderer
 SDL_Renderer* gRenderer = NULL;
 
-//Globally used font
-TTF_Font* gFont = NULL;
-
 //Scene textures
-LTexture gFPSTextTexture;
+LTexture gDotTexture;
 
 LTexture::LTexture()
 {
@@ -172,37 +170,37 @@ bool LTexture::loadFromFile( std::string path )
 #ifdef _SDL_TTF_H
 bool LTexture::loadFromRenderedText( std::string textureText, SDL_Color textColor )
 {
-    //Get rid of preexisting texture
-    free();
+	//Get rid of preexisting texture
+	free();
 
-    //Render text surface
-    SDL_Surface* textSurface = TTF_RenderText_Solid( gFont, textureText.c_str(), textColor );
-    if( textSurface != NULL )
-    {
-        //Create texture from surface pixels
+	//Render text surface
+	SDL_Surface* textSurface = TTF_RenderText_Solid( gFont, textureText.c_str(), textColor );
+	if( textSurface != NULL )
+	{
+		//Create texture from surface pixels
         mTexture = SDL_CreateTextureFromSurface( gRenderer, textSurface );
-        if( mTexture == NULL )
-        {
-            printf( "Unable to create texture from rendered text! SDL Error: %s\n", SDL_GetError() );
-        }
-        else
-        {
-            //Get image dimensions
-            mWidth = textSurface->w;
-            mHeight = textSurface->h;
-        }
+		if( mTexture == NULL )
+		{
+			printf( "Unable to create texture from rendered text! SDL Error: %s\n", SDL_GetError() );
+		}
+		else
+		{
+			//Get image dimensions
+			mWidth = textSurface->w;
+			mHeight = textSurface->h;
+		}
 
-        //Get rid of old surface
-        SDL_FreeSurface( textSurface );
-    }
-    else
-    {
-        printf( "Unable to render text surface! SDL_ttf Error: %s\n", TTF_GetError() );
-    }
+		//Get rid of old surface
+		SDL_FreeSurface( textSurface );
+	}
+	else
+	{
+		printf( "Unable to render text surface! SDL_ttf Error: %s\n", TTF_GetError() );
+	}
 
 
-    //Return success
-    return mTexture != NULL;
+	//Return success
+	return mTexture != NULL;
 }
 #endif
 
@@ -262,106 +260,80 @@ int LTexture::getHeight()
     return mHeight;
 }
 
-LTimer::LTimer()
+Dot::Dot()
 {
-    //Initialize the variables
-    mStartTicks = 0;
-    mPausedTicks = 0;
+    //Initialize the offsets
+    mPosX = 0;
+    mPosY = 0;
 
-    mPaused = false;
-    mStarted = false;
+    //Set collision box dimension
+    mCollider.w = DOT_WIDTH;
+    mCollider.h = DOT_HEIGHT;
+
+    //Initialize the velocity
+    mVelX = 0;
+    mVelY = 0;
 }
 
-void LTimer::start()
+void Dot::handleEvent( SDL_Event& e )
 {
-    //Start the timer
-    mStarted = true;
-
-    //Unpause the timer
-    mPaused = false;
-
-    //Get the current clock time
-    mStartTicks = SDL_GetTicks();
-    mPausedTicks = 0;
-}
-
-void LTimer::stop()
-{
-    //Stop the timer
-    mStarted = false;
-
-    //Unpause the timer
-    mPaused = false;
-
-    //Clear tick variables
-    mStartTicks = 0;
-    mPausedTicks = 0;
-}
-
-void LTimer::pause()
-{
-    //If the timer is running and isn't already paused
-    if( mStarted && !mPaused )
+    //If a key was pressed
+    if( e.type == SDL_KEYDOWN && e.key.repeat == 0 )
     {
-        //Pause the timer
-        mPaused = true;
-
-        //Calculate the paused ticks
-        mPausedTicks = SDL_GetTicks() - mStartTicks;
-        mStartTicks = 0;
-    }
-}
-
-void LTimer::unpause()
-{
-    //If the timer is running and paused
-    if( mStarted && mPaused )
-    {
-        //Unpause the timer
-        mPaused = false;
-
-        //Reset the starting ticks
-        mStartTicks = SDL_GetTicks() - mPausedTicks;
-
-        //Reset the paused ticks
-        mPausedTicks = 0;
-    }
-}
-
-Uint32 LTimer::getTicks()
-{
-    //The actual timer time
-    Uint32 time = 0;
-
-    //If the timer is running
-    if( mStarted )
-    {
-        //If the timer is paused
-        if( mPaused )
+        //Adjust the velocity
+        switch( e.key.keysym.sym )
         {
-            //Return the number of ticks when the timer was paused
-            time = mPausedTicks;
-        }
-        else
-        {
-            //Return the current time minus the start time
-            time = SDL_GetTicks() - mStartTicks;
+            case SDLK_UP: mVelY -= DOT_VEL; break;
+            case SDLK_DOWN: mVelY += DOT_VEL; break;
+            case SDLK_LEFT: mVelX -= DOT_VEL; break;
+            case SDLK_RIGHT: mVelX += DOT_VEL; break;
         }
     }
-
-    return time;
+        //If a key was released
+    else if( e.type == SDL_KEYUP && e.key.repeat == 0 )
+    {
+        //Adjust the velocity
+        switch( e.key.keysym.sym )
+        {
+            case SDLK_UP: mVelY += DOT_VEL; break;
+            case SDLK_DOWN: mVelY -= DOT_VEL; break;
+            case SDLK_LEFT: mVelX += DOT_VEL; break;
+            case SDLK_RIGHT: mVelX -= DOT_VEL; break;
+        }
+    }
 }
 
-bool LTimer::isStarted()
+void Dot::move( SDL_Rect& wall )
 {
-    //Timer is running and paused or unpaused
-    return mStarted;
+    //Move the dot left or right
+    mPosX += mVelX;
+    mCollider.x = mPosX;
+
+    //If the dot collided or went too far to the left or right
+    if( ( mPosX < 0 ) || ( mPosX + DOT_WIDTH > SCREEN_WIDTH ) || checkCollision( mCollider, wall ) )
+    {
+        //Move back
+        mPosX -= mVelX;
+        mCollider.x = mPosX;
+    }
+
+    //Move the dot up or down
+    mPosY += mVelY;
+    mCollider.y = mPosY;
+
+    //If the dot collided or went too far up or down
+    if( ( mPosY < 0 ) || ( mPosY + DOT_HEIGHT > SCREEN_HEIGHT ) || checkCollision( mCollider, wall ) )
+    {
+        //Move back
+        mPosY -= mVelY;
+        mCollider.y = mPosY;
+    }
 }
 
-bool LTimer::isPaused()
+void Dot::render()
 {
-    //Timer is running and paused
-    return mPaused && mStarted;
+    //Show the dot
+    gDotTexture.render( mPosX, mPosY );
 }
 
 bool init()
@@ -372,7 +344,7 @@ bool init()
     //Initialize SDL
     if( SDL_Init( SDL_INIT_VIDEO ) < 0 )
     {
-        printf( "SDL could not initialize! %s\n", SDL_GetError() );
+        printf( "SDL could not initialize! SDL Error: %s\n", SDL_GetError() );
         success = false;
     }
     else
@@ -392,8 +364,8 @@ bool init()
         }
         else
         {
-            //Create renderer for window
-            gRenderer = SDL_CreateRenderer( gWindow, -1, SDL_RENDERER_ACCELERATED );
+            //Create vsynced renderer for window
+            gRenderer = SDL_CreateRenderer( gWindow, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC );
             if( gRenderer == NULL )
             {
                 printf( "Renderer could not be created! SDL Error: %s\n", SDL_GetError() );
@@ -411,13 +383,6 @@ bool init()
                     printf( "SDL_image could not initialize! SDL_image Error: %s\n", IMG_GetError() );
                     success = false;
                 }
-
-                //Initialize SDL_ttf
-                if( TTF_Init() == -1 )
-                {
-                    printf( "SDL_ttf could not initialize! SDL_ttf Error: %s\n", TTF_GetError() );
-                    success = false;
-                }
             }
         }
     }
@@ -430,11 +395,10 @@ bool loadMedia()
     //Loading success flag
     bool success = true;
 
-    //Open the font
-    gFont = TTF_OpenFont( "resources/lazy.ttf", 28 );
-    if( gFont == NULL )
+    //Load press texture
+    if( !gDotTexture.loadFromFile( "resources/dot.bmp" ) )
     {
-        printf( "Failed to load lazy font! SDL_ttf Error: %s\n", TTF_GetError() );
+        printf( "Failed to load dot texture!\n" );
         success = false;
     }
 
@@ -444,11 +408,7 @@ bool loadMedia()
 void close()
 {
     //Free loaded images
-    gFPSTextTexture.free();
-
-    //Free global font
-    TTF_CloseFont( gFont );
-    gFont = NULL;
+    gDotTexture.free();
 
     //Destroy window
     SDL_DestroyRenderer( gRenderer );
@@ -457,9 +417,53 @@ void close()
     gRenderer = NULL;
 
     //Quit SDL subsystems
-    TTF_Quit();
     IMG_Quit();
     SDL_Quit();
+}
+
+bool checkCollision( SDL_Rect a, SDL_Rect b )
+{
+    //The sides of the rectangles
+    int leftA, leftB;
+    int rightA, rightB;
+    int topA, topB;
+    int bottomA, bottomB;
+
+    //Calculate the sides of rect A
+    leftA = a.x;
+    rightA = a.x + a.w;
+    topA = a.y;
+    bottomA = a.y + a.h;
+
+    //Calculate the sides of rect B
+    leftB = b.x;
+    rightB = b.x + b.w;
+    topB = b.y;
+    bottomB = b.y + b.h;
+
+    //If any of the sides from A are outside of B
+    if( bottomA <= topB )
+    {
+        return false;
+    }
+
+    if( topA >= bottomB )
+    {
+        return false;
+    }
+
+    if( rightA <= leftB )
+    {
+        return false;
+    }
+
+    if( leftA >= rightB )
+    {
+        return false;
+    }
+
+    //If none of the sides from A are outside B
+    return true;
 }
 
 int main( int argc, char* args[] )
@@ -484,28 +488,19 @@ int main( int argc, char* args[] )
             //Event handler
             SDL_Event e;
 
-            //Set text color as black
-            SDL_Color textColor = { 0, 0, 0, 255 };
+            //The dot that will be moving around on the screen
+            Dot dot;
 
-            //The frames per second timer
-            LTimer fpsTimer;
-
-            //The frames per second cap timer
-            LTimer capTimer;
-
-            //In memory text stream
-            std::stringstream timeText;
-
-            //Start counting frames per second
-            int countedFrames = 0;
-            fpsTimer.start();
+            //Set the wall
+            SDL_Rect wall;
+            wall.x = 300;
+            wall.y = 40;
+            wall.w = 40;
+            wall.h = 400;
 
             //While application is running
             while( !quit )
             {
-                //Start cap timer
-                capTimer.start();
-
                 //Handle events on queue
                 while( SDL_PollEvent( &e ) != 0 )
                 {
@@ -514,43 +509,27 @@ int main( int argc, char* args[] )
                     {
                         quit = true;
                     }
+
+                    //Handle input for the dot
+                    dot.handleEvent( e );
                 }
 
-                //Calculate and correct fps
-                float avgFPS = countedFrames / ( fpsTimer.getTicks() / 1000.f );
-                if( avgFPS > 2000000 )
-                {
-                    avgFPS = 0;
-                }
-
-                //Set text to be rendered
-                timeText.str( "" );
-                timeText << "Average Frames Per Second (With Cap) " << avgFPS;
-
-                //Render text
-                if( !gFPSTextTexture.loadFromRenderedText( timeText.str().c_str(), textColor ) )
-                {
-                    printf( "Unable to render FPS texture!\n" );
-                }
+                //Move the dot and check collision
+                dot.move( wall );
 
                 //Clear screen
                 SDL_SetRenderDrawColor( gRenderer, 0xFF, 0xFF, 0xFF, 0xFF );
                 SDL_RenderClear( gRenderer );
 
-                //Render textures
-                gFPSTextTexture.render( ( SCREEN_WIDTH - gFPSTextTexture.getWidth() ) / 2, ( SCREEN_HEIGHT - gFPSTextTexture.getHeight() ) / 2 );
+                //Render wall
+                SDL_SetRenderDrawColor( gRenderer, 0x00, 0x00, 0x00, 0xFF );
+                SDL_RenderDrawRect( gRenderer, &wall );
+
+                //Render dot
+                dot.render();
 
                 //Update screen
                 SDL_RenderPresent( gRenderer );
-                ++countedFrames;
-
-                //If frame finished early
-                int frameTicks = capTimer.getTicks();
-                if( frameTicks < SCREEN_TICK_PER_FRAME )
-                {
-                    //Wait remaining time
-                    SDL_Delay( SCREEN_TICK_PER_FRAME - frameTicks );
-                }
             }
         }
     }
