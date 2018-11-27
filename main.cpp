@@ -1,11 +1,12 @@
 /*This source code copyrighted by Lazy Foo' Productions (2004-2015)
 and may not be redistributed without written permission.*/
 
-//Using SDL, SDL_image, standard IO, vectors, and strings
+//Using SDL, SDL_image, standard IO, strings, and string streams
 #include <SDL.h>
 #include <SDL_image.h>
 #include <stdio.h>
 #include <string>
+#include <sstream>
 
 //Screen dimension constants
 const int SCREEN_WIDTH = 640;
@@ -57,35 +58,46 @@ private:
     int mHeight;
 };
 
-//The dot that will move around on the screen
-class Dot
+class LWindow
 {
 public:
-    //The dimensions of the dot
-    static const int DOT_WIDTH = 20;
-    static const int DOT_HEIGHT = 20;
+    //Intializes internals
+    LWindow();
 
-    //Maximum axis velocity of the dot
-    static const int DOT_VEL = 10;
+    //Creates window
+    bool init();
 
-    //Initializes the variables
-    Dot();
+    //Creates renderer from internal window
+    SDL_Renderer* createRenderer();
 
-    //Takes key presses and adjusts the dot's velocity
+    //Handles window events
     void handleEvent( SDL_Event& e );
 
-    //Moves the dot
-    void move();
+    //Deallocates internals
+    void free();
 
-    //Shows the dot on the screen
-    void render();
+    //Window dimensions
+    int getWidth();
+    int getHeight();
+
+    //Window focii
+    bool hasMouseFocus();
+    bool hasKeyboardFocus();
+    bool isMinimized();
 
 private:
-    //The X and Y offsets of the dot
-    int mPosX, mPosY;
+    //Window data
+    SDL_Window* mWindow;
 
-    //The velocity of the dot
-    int mVelX, mVelY;
+    //Window dimensions
+    int mWidth;
+    int mHeight;
+
+    //Window focus
+    bool mMouseFocus;
+    bool mKeyboardFocus;
+    bool mFullScreen;
+    bool mMinimized;
 };
 
 //Starts up SDL and creates window
@@ -97,15 +109,15 @@ bool loadMedia();
 //Frees media and shuts down SDL
 void close();
 
-//The window we'll be rendering to
-SDL_Window* gWindow = NULL;
+//Our custom window
+LWindow gWindow;
 
 //The window renderer
 SDL_Renderer* gRenderer = NULL;
 
 //Scene textures
-LTexture gDotTexture;
-LTexture gBGTexture;
+LTexture gSceneTexture;
+
 
 LTexture::LTexture()
 {
@@ -193,7 +205,7 @@ bool LTexture::loadFromRenderedText( std::string textureText, SDL_Color textColo
 		printf( "Unable to render text surface! SDL_ttf Error: %s\n", TTF_GetError() );
 	}
 
-	
+
 	//Return success
 	return mTexture != NULL;
 }
@@ -255,72 +267,161 @@ int LTexture::getHeight()
     return mHeight;
 }
 
-Dot::Dot()
+LWindow::LWindow()
 {
-    //Initialize the offsets
-    mPosX = 0;
-    mPosY = 0;
-
-    //Initialize the velocity
-    mVelX = 0;
-    mVelY = 0;
+    //Initialize non-existant window
+    mWindow = NULL;
+    mMouseFocus = false;
+    mKeyboardFocus = false;
+    mFullScreen = false;
+    mMinimized = false;
+    mWidth = 0;
+    mHeight = 0;
 }
 
-void Dot::handleEvent( SDL_Event& e )
+bool LWindow::init()
 {
-    //If a key was pressed
-    if( e.type == SDL_KEYDOWN && e.key.repeat == 0 )
+    //Create window
+    mWindow = SDL_CreateWindow( "SDL Tutorial", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE );
+    if( mWindow != NULL )
     {
-        //Adjust the velocity
-        switch( e.key.keysym.sym )
+        mMouseFocus = true;
+        mKeyboardFocus = true;
+        mWidth = SCREEN_WIDTH;
+        mHeight = SCREEN_HEIGHT;
+    }
+
+    return mWindow != NULL;
+}
+
+SDL_Renderer* LWindow::createRenderer()
+{
+    return SDL_CreateRenderer( mWindow, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC );
+}
+
+void LWindow::handleEvent( SDL_Event& e )
+{
+    //Window event occured
+    if( e.type == SDL_WINDOWEVENT )
+    {
+        //Caption update flag
+        bool updateCaption = false;
+
+        switch( e.window.event )
         {
-            case SDLK_UP: mVelY -= DOT_VEL; break;
-            case SDLK_DOWN: mVelY += DOT_VEL; break;
-            case SDLK_LEFT: mVelX -= DOT_VEL; break;
-            case SDLK_RIGHT: mVelX += DOT_VEL; break;
+            //Get new dimensions and repaint on window size change
+            case SDL_WINDOWEVENT_SIZE_CHANGED:
+                mWidth = e.window.data1;
+                mHeight = e.window.data2;
+                SDL_RenderPresent( gRenderer );
+                break;
+
+                //Repaint on exposure
+            case SDL_WINDOWEVENT_EXPOSED:
+                SDL_RenderPresent( gRenderer );
+                break;
+
+                //Mouse entered window
+            case SDL_WINDOWEVENT_ENTER:
+                mMouseFocus = true;
+                updateCaption = true;
+                break;
+
+                //Mouse left window
+            case SDL_WINDOWEVENT_LEAVE:
+                mMouseFocus = false;
+                updateCaption = true;
+                break;
+
+                //Window has keyboard focus
+            case SDL_WINDOWEVENT_FOCUS_GAINED:
+                mKeyboardFocus = true;
+                updateCaption = true;
+                break;
+
+                //Window lost keyboard focus
+            case SDL_WINDOWEVENT_FOCUS_LOST:
+                mKeyboardFocus = false;
+                updateCaption = true;
+                break;
+
+                //Window minimized
+            case SDL_WINDOWEVENT_MINIMIZED:
+                mMinimized = true;
+                break;
+
+                //Window maxized
+            case SDL_WINDOWEVENT_MAXIMIZED:
+                mMinimized = false;
+                break;
+
+                //Window restored
+            case SDL_WINDOWEVENT_RESTORED:
+                mMinimized = false;
+                break;
+        }
+
+        //Update window caption with new data
+        if( updateCaption )
+        {
+            std::stringstream caption;
+            caption << "SDL Tutorial - MouseFocus:" << ( ( mMouseFocus ) ? "On" : "Off" ) << " KeyboardFocus:" << ( ( mKeyboardFocus ) ? "On" : "Off" );
+            SDL_SetWindowTitle( mWindow, caption.str().c_str() );
         }
     }
-        //If a key was released
-    else if( e.type == SDL_KEYUP && e.key.repeat == 0 )
+        //Enter exit full screen on return key
+    else if( e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_RETURN )
     {
-        //Adjust the velocity
-        switch( e.key.keysym.sym )
+        if( mFullScreen )
         {
-            case SDLK_UP: mVelY += DOT_VEL; break;
-            case SDLK_DOWN: mVelY -= DOT_VEL; break;
-            case SDLK_LEFT: mVelX += DOT_VEL; break;
-            case SDLK_RIGHT: mVelX -= DOT_VEL; break;
+            SDL_SetWindowFullscreen( mWindow, SDL_FALSE );
+            mFullScreen = false;
+        }
+        else
+        {
+            SDL_SetWindowFullscreen( mWindow, SDL_TRUE );
+            mFullScreen = true;
+            mMinimized = false;
         }
     }
 }
 
-void Dot::move()
+void LWindow::free()
 {
-    //Move the dot left or right
-    mPosX += mVelX;
-
-    //If the dot went too far to the left or right
-    if( ( mPosX < 0 ) || ( mPosX + DOT_WIDTH > SCREEN_WIDTH ) )
+    if( mWindow != NULL )
     {
-        //Move back
-        mPosX -= mVelX;
+        SDL_DestroyWindow( mWindow );
     }
 
-    //Move the dot up or down
-    mPosY += mVelY;
-
-    //If the dot went too far up or down
-    if( ( mPosY < 0 ) || ( mPosY + DOT_HEIGHT > SCREEN_HEIGHT ) )
-    {
-        //Move back
-        mPosY -= mVelY;
-    }
+    mMouseFocus = false;
+    mKeyboardFocus = false;
+    mWidth = 0;
+    mHeight = 0;
 }
 
-void Dot::render()
+int LWindow::getWidth()
 {
-    //Show the dot
-    gDotTexture.render( mPosX, mPosY );
+    return mWidth;
+}
+
+int LWindow::getHeight()
+{
+    return mHeight;
+}
+
+bool LWindow::hasMouseFocus()
+{
+    return mMouseFocus;
+}
+
+bool LWindow::hasKeyboardFocus()
+{
+    return mKeyboardFocus;
+}
+
+bool LWindow::isMinimized()
+{
+    return mMinimized;
 }
 
 bool init()
@@ -343,16 +444,15 @@ bool init()
         }
 
         //Create window
-        gWindow = SDL_CreateWindow( "SDL Tutorial", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN );
-        if( gWindow == NULL )
+        if( !gWindow.init() )
         {
             printf( "Window could not be created! SDL Error: %s\n", SDL_GetError() );
             success = false;
         }
         else
         {
-            //Create vsynced renderer for window
-            gRenderer = SDL_CreateRenderer( gWindow, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC );
+            //Create renderer for window
+            gRenderer = gWindow.createRenderer();
             if( gRenderer == NULL )
             {
                 printf( "Renderer could not be created! SDL Error: %s\n", SDL_GetError() );
@@ -382,17 +482,10 @@ bool loadMedia()
     //Loading success flag
     bool success = true;
 
-    //Load dot texture
-    if( !gDotTexture.loadFromFile( "resources/dot.bmp" ) )
+    //Load scene texture
+    if( !gSceneTexture.loadFromFile( "resources/window.png" ) )
     {
-        printf( "Failed to load dot texture!\n" );
-        success = false;
-    }
-
-    //Load background texture
-    if( !gBGTexture.loadFromFile( "resources/bg.png" ) )
-    {
-        printf( "Failed to load background texture!\n" );
+        printf( "Failed to load window texture!\n" );
         success = false;
     }
 
@@ -402,14 +495,11 @@ bool loadMedia()
 void close()
 {
     //Free loaded images
-    gDotTexture.free();
-    gBGTexture.free();
+    gSceneTexture.free();
 
-    //Destroy window	
+    //Destroy window
     SDL_DestroyRenderer( gRenderer );
-    SDL_DestroyWindow( gWindow );
-    gWindow = NULL;
-    gRenderer = NULL;
+    gWindow.free();
 
     //Quit SDL subsystems
     IMG_Quit();
@@ -438,12 +528,6 @@ int main( int argc, char* args[] )
             //Event handler
             SDL_Event e;
 
-            //The dot that will be moving around on the screen
-            Dot dot;
-
-            //The background scrolling offset
-            int scrollingOffset = 0;
-
             //While application is running
             while( !quit )
             {
@@ -456,33 +540,23 @@ int main( int argc, char* args[] )
                         quit = true;
                     }
 
-                    //Handle input for the dot
-                    dot.handleEvent( e );
+                    //Handle window events
+                    gWindow.handleEvent( e );
                 }
 
-                //Move the dot
-                dot.move();
-
-                //Scroll background
-                --scrollingOffset;
-                if( scrollingOffset < -gBGTexture.getWidth() )
+                //Only draw when not minimized
+                if( !gWindow.isMinimized() )
                 {
-                    scrollingOffset = 0;
+                    //Clear screen
+                    SDL_SetRenderDrawColor( gRenderer, 0xFF, 0xFF, 0xFF, 0xFF );
+                    SDL_RenderClear( gRenderer );
+
+                    //Render text textures
+                    gSceneTexture.render( ( gWindow.getWidth() - gSceneTexture.getWidth() ) / 2, ( gWindow.getHeight() - gSceneTexture.getHeight() ) / 2 );
+
+                    //Update screen
+                    SDL_RenderPresent( gRenderer );
                 }
-
-                //Clear screen
-                SDL_SetRenderDrawColor( gRenderer, 0xFF, 0xFF, 0xFF, 0xFF );
-                SDL_RenderClear( gRenderer );
-
-                //Render background
-                gBGTexture.render( scrollingOffset, 0 );
-                gBGTexture.render( scrollingOffset + gBGTexture.getWidth(), 0 );
-
-                //Render objects
-                dot.render();
-
-                //Update screen
-                SDL_RenderPresent( gRenderer );
             }
         }
     }
