@@ -1,16 +1,18 @@
 /*This source code copyrighted by Lazy Foo' Productions (2004-2015)
 and may not be redistributed without written permission.*/
 
-//Using SDL, SDL_image, standard IO, strings, and string streams
+//Using SDL, SDL_image, standard IO, and strings
 #include <SDL.h>
 #include <SDL_image.h>
 #include <stdio.h>
 #include <string>
-#include <sstream>
 
 //Screen dimension constants
 const int SCREEN_WIDTH = 640;
 const int SCREEN_HEIGHT = 480;
+
+//Particle count
+const int TOTAL_PARTICLES = 20;
 
 //Texture wrapper class
 class LTexture
@@ -58,46 +60,68 @@ private:
     int mHeight;
 };
 
-class LWindow
+class Particle
 {
 public:
-    //Intializes internals
-    LWindow();
+    //Initialize position and animation
+    Particle( int x, int y );
 
-    //Creates window
-    bool init();
+    //Shows the particle
+    void render();
 
-    //Creates renderer from internal window
-    SDL_Renderer* createRenderer();
-
-    //Handles window events
-    void handleEvent( SDL_Event& e );
-
-    //Deallocates internals
-    void free();
-
-    //Window dimensions
-    int getWidth();
-    int getHeight();
-
-    //Window focii
-    bool hasMouseFocus();
-    bool hasKeyboardFocus();
-    bool isMinimized();
+    //Checks if particle is dead
+    bool isDead();
 
 private:
-    //Window data
-    SDL_Window* mWindow;
+    //Offsets
+    int mPosX, mPosY;
 
-    //Window dimensions
-    int mWidth;
-    int mHeight;
+    //Current frame of animation
+    int mFrame;
 
-    //Window focus
-    bool mMouseFocus;
-    bool mKeyboardFocus;
-    bool mFullScreen;
-    bool mMinimized;
+    //Type of particle
+    LTexture *mTexture;
+};
+
+
+//The dot that will move around on the screen
+class Dot
+{
+public:
+    //The dimensions of the dot
+    static const int DOT_WIDTH = 20;
+    static const int DOT_HEIGHT = 20;
+
+    //Maximum axis velocity of the dot
+    static const int DOT_VEL = 10;
+
+    //Initializes the variables and allocates particles
+    Dot();
+
+    //Deallocates particles
+    ~Dot();
+
+    //Takes key presses and adjusts the dot's velocity
+    void handleEvent( SDL_Event& e );
+
+    //Moves the dot
+    void move();
+
+    //Shows the dot on the screen
+    void render();
+
+private:
+    //The particles
+    Particle* particles[ TOTAL_PARTICLES ];
+
+    //Shows the particles
+    void renderParticles();
+
+    //The X and Y offsets of the dot
+    int mPosX, mPosY;
+
+    //The velocity of the dot
+    int mVelX, mVelY;
 };
 
 //Starts up SDL and creates window
@@ -109,15 +133,18 @@ bool loadMedia();
 //Frees media and shuts down SDL
 void close();
 
-//Our custom window
-LWindow gWindow;
+//The window we'll be rendering to
+SDL_Window* gWindow = NULL;
 
 //The window renderer
 SDL_Renderer* gRenderer = NULL;
 
 //Scene textures
-LTexture gSceneTexture;
-
+LTexture gDotTexture;
+LTexture gRedTexture;
+LTexture gGreenTexture;
+LTexture gBlueTexture;
+LTexture gShimmerTexture;
 
 LTexture::LTexture()
 {
@@ -205,7 +232,7 @@ bool LTexture::loadFromRenderedText( std::string textureText, SDL_Color textColo
 		printf( "Unable to render text surface! SDL_ttf Error: %s\n", TTF_GetError() );
 	}
 
-
+	
 	//Return success
 	return mTexture != NULL;
 }
@@ -267,161 +294,148 @@ int LTexture::getHeight()
     return mHeight;
 }
 
-LWindow::LWindow()
+Particle::Particle( int x, int y )
 {
-    //Initialize non-existant window
-    mWindow = NULL;
-    mMouseFocus = false;
-    mKeyboardFocus = false;
-    mFullScreen = false;
-    mMinimized = false;
-    mWidth = 0;
-    mHeight = 0;
+    //Set offsets
+    mPosX = x - 5 + ( rand() % 25 );
+    mPosY = y - 5 + ( rand() % 25 );
+
+    //Initialize animation
+    mFrame = rand() % 5;
+
+    //Set type
+    switch( rand() % 3 )
+    {
+        case 0: mTexture = &gRedTexture; break;
+        case 1: mTexture = &gGreenTexture; break;
+        case 2: mTexture = &gBlueTexture; break;
+    }
 }
 
-bool LWindow::init()
+void Particle::render()
 {
-    //Create window
-    mWindow = SDL_CreateWindow( "SDL Tutorial", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE );
-    if( mWindow != NULL )
+    //Show image
+    mTexture->render( mPosX, mPosY );
+
+    //Show shimmer
+    if( mFrame % 2 == 0 )
     {
-        mMouseFocus = true;
-        mKeyboardFocus = true;
-        mWidth = SCREEN_WIDTH;
-        mHeight = SCREEN_HEIGHT;
+        gShimmerTexture.render( mPosX, mPosY );
     }
 
-    return mWindow != NULL;
+    //Animate
+    mFrame++;
 }
 
-SDL_Renderer* LWindow::createRenderer()
+bool Particle::isDead()
 {
-    return SDL_CreateRenderer( mWindow, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC );
+    return mFrame > 10;
 }
 
-void LWindow::handleEvent( SDL_Event& e )
+Dot::Dot()
 {
-    //Window event occured
-    if( e.type == SDL_WINDOWEVENT )
+    //Initialize the offsets
+    mPosX = 0;
+    mPosY = 0;
+
+    //Initialize the velocity
+    mVelX = 0;
+    mVelY = 0;
+
+    //Initialize particles
+    for( int i = 0; i < TOTAL_PARTICLES; ++i )
     {
-        //Caption update flag
-        bool updateCaption = false;
+        particles[ i ] = new Particle( mPosX, mPosY );
+    }
+}
 
-        switch( e.window.event )
+Dot::~Dot()
+{
+    //Delete particles
+    for( int i = 0; i < TOTAL_PARTICLES; ++i )
+    {
+        delete particles[ i ];
+    }
+}
+
+void Dot::handleEvent( SDL_Event& e )
+{
+    //If a key was pressed
+    if( e.type == SDL_KEYDOWN && e.key.repeat == 0 )
+    {
+        //Adjust the velocity
+        switch( e.key.keysym.sym )
         {
-            //Get new dimensions and repaint on window size change
-            case SDL_WINDOWEVENT_SIZE_CHANGED:
-                mWidth = e.window.data1;
-                mHeight = e.window.data2;
-                SDL_RenderPresent( gRenderer );
-                break;
-
-                //Repaint on exposure
-            case SDL_WINDOWEVENT_EXPOSED:
-                SDL_RenderPresent( gRenderer );
-                break;
-
-                //Mouse entered window
-            case SDL_WINDOWEVENT_ENTER:
-                mMouseFocus = true;
-                updateCaption = true;
-                break;
-
-                //Mouse left window
-            case SDL_WINDOWEVENT_LEAVE:
-                mMouseFocus = false;
-                updateCaption = true;
-                break;
-
-                //Window has keyboard focus
-            case SDL_WINDOWEVENT_FOCUS_GAINED:
-                mKeyboardFocus = true;
-                updateCaption = true;
-                break;
-
-                //Window lost keyboard focus
-            case SDL_WINDOWEVENT_FOCUS_LOST:
-                mKeyboardFocus = false;
-                updateCaption = true;
-                break;
-
-                //Window minimized
-            case SDL_WINDOWEVENT_MINIMIZED:
-                mMinimized = true;
-                break;
-
-                //Window maxized
-            case SDL_WINDOWEVENT_MAXIMIZED:
-                mMinimized = false;
-                break;
-
-                //Window restored
-            case SDL_WINDOWEVENT_RESTORED:
-                mMinimized = false;
-                break;
-        }
-
-        //Update window caption with new data
-        if( updateCaption )
-        {
-            std::stringstream caption;
-            caption << "SDL Tutorial - MouseFocus:" << ( ( mMouseFocus ) ? "On" : "Off" ) << " KeyboardFocus:" << ( ( mKeyboardFocus ) ? "On" : "Off" );
-            SDL_SetWindowTitle( mWindow, caption.str().c_str() );
+            case SDLK_UP: mVelY -= DOT_VEL; break;
+            case SDLK_DOWN: mVelY += DOT_VEL; break;
+            case SDLK_LEFT: mVelX -= DOT_VEL; break;
+            case SDLK_RIGHT: mVelX += DOT_VEL; break;
         }
     }
-        //Enter exit full screen on return key
-    else if( e.type == SDL_KEYDOWN && e.key.keysym.sym == SDLK_RETURN )
+        //If a key was released
+    else if( e.type == SDL_KEYUP && e.key.repeat == 0 )
     {
-        if( mFullScreen )
+        //Adjust the velocity
+        switch( e.key.keysym.sym )
         {
-            SDL_SetWindowFullscreen( mWindow, SDL_FALSE );
-            mFullScreen = false;
-        }
-        else
-        {
-            SDL_SetWindowFullscreen( mWindow, SDL_TRUE );
-            mFullScreen = true;
-            mMinimized = false;
+            case SDLK_UP: mVelY += DOT_VEL; break;
+            case SDLK_DOWN: mVelY -= DOT_VEL; break;
+            case SDLK_LEFT: mVelX += DOT_VEL; break;
+            case SDLK_RIGHT: mVelX -= DOT_VEL; break;
         }
     }
 }
 
-void LWindow::free()
+void Dot::move()
 {
-    if( mWindow != NULL )
+    //Move the dot left or right
+    mPosX += mVelX;
+
+    //If the dot went too far to the left or right
+    if( ( mPosX < 0 ) || ( mPosX + DOT_WIDTH > SCREEN_WIDTH ) )
     {
-        SDL_DestroyWindow( mWindow );
+        //Move back
+        mPosX -= mVelX;
     }
 
-    mMouseFocus = false;
-    mKeyboardFocus = false;
-    mWidth = 0;
-    mHeight = 0;
+    //Move the dot up or down
+    mPosY += mVelY;
+
+    //If the dot went too far up or down
+    if( ( mPosY < 0 ) || ( mPosY + DOT_HEIGHT > SCREEN_HEIGHT ) )
+    {
+        //Move back
+        mPosY -= mVelY;
+    }
 }
 
-int LWindow::getWidth()
+void Dot::render()
 {
-    return mWidth;
+    //Show the dot
+    gDotTexture.render( mPosX, mPosY );
+
+    //Show particles on top of dot
+    renderParticles();
 }
 
-int LWindow::getHeight()
+void Dot::renderParticles()
 {
-    return mHeight;
-}
+    //Go through particles
+    for( int i = 0; i < TOTAL_PARTICLES; ++i )
+    {
+        //Delete and replace dead particles
+        if( particles[ i ]->isDead() )
+        {
+            delete particles[ i ];
+            particles[ i ] = new Particle( mPosX, mPosY );
+        }
+    }
 
-bool LWindow::hasMouseFocus()
-{
-    return mMouseFocus;
-}
-
-bool LWindow::hasKeyboardFocus()
-{
-    return mKeyboardFocus;
-}
-
-bool LWindow::isMinimized()
-{
-    return mMinimized;
+    //Show particles
+    for( int i = 0; i < TOTAL_PARTICLES; ++i )
+    {
+        particles[ i ]->render();
+    }
 }
 
 bool init()
@@ -444,7 +458,8 @@ bool init()
         }
 
         //Create window
-        if( !gWindow.init() )
+        gWindow = SDL_CreateWindow( "SDL Tutorial", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_SHOWN );
+        if( gWindow == NULL )
         {
             printf( "Window could not be created! SDL Error: %s\n", SDL_GetError() );
             success = false;
@@ -452,7 +467,7 @@ bool init()
         else
         {
             //Create renderer for window
-            gRenderer = gWindow.createRenderer();
+            gRenderer = SDL_CreateRenderer( gWindow, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC );
             if( gRenderer == NULL )
             {
                 printf( "Renderer could not be created! SDL Error: %s\n", SDL_GetError() );
@@ -482,12 +497,45 @@ bool loadMedia()
     //Loading success flag
     bool success = true;
 
-    //Load scene texture
-    if( !gSceneTexture.loadFromFile( "resources/window.png" ) )
+    //Load dot texture
+    if( !gDotTexture.loadFromFile( "resources/dot.bmp" ) )
     {
-        printf( "Failed to load window texture!\n" );
+        printf( "Failed to load dot texture!\n" );
         success = false;
     }
+
+    //Load red texture
+    if( !gRedTexture.loadFromFile( "resources/red.bmp" ) )
+    {
+        printf( "Failed to load red texture!\n" );
+        success = false;
+    }
+
+    //Load green texture
+    if( !gGreenTexture.loadFromFile( "resources/green.bmp" ) )
+    {
+        printf( "Failed to load green texture!\n" );
+        success = false;
+    }
+
+    //Load blue texture
+    if( !gBlueTexture.loadFromFile( "resources/blue.bmp" ) )
+    {
+        printf( "Failed to load blue texture!\n" );
+        success = false;
+    }
+
+    //Load shimmer texture
+    if( !gShimmerTexture.loadFromFile( "resources/shimmer.bmp" ) )
+    {
+        printf( "Failed to load shimmer texture!\n" );
+        success = false;
+    }
+
+    //Set texture transparency
+gRedTexture.setAlpha( 192 );
+    gGreenTexture.setAlpha( 192 );
+  gBlueTexture.setAlpha( 192 );
 
     return success;
 }
@@ -495,11 +543,17 @@ bool loadMedia()
 void close()
 {
     //Free loaded images
-    gSceneTexture.free();
+    gDotTexture.free();
+    gRedTexture.free();
+    gGreenTexture.free();
+    gBlueTexture.free();
+    gShimmerTexture.free();
 
-    //Destroy window
+    //Destroy window	
     SDL_DestroyRenderer( gRenderer );
-    gWindow.free();
+    SDL_DestroyWindow( gWindow );
+    gWindow = NULL;
+    gRenderer = NULL;
 
     //Quit SDL subsystems
     IMG_Quit();
@@ -528,6 +582,9 @@ int main( int argc, char* args[] )
             //Event handler
             SDL_Event e;
 
+            //The dot that will be moving around on the screen
+            Dot dot;
+
             //While application is running
             while( !quit )
             {
@@ -540,23 +597,22 @@ int main( int argc, char* args[] )
                         quit = true;
                     }
 
-                    //Handle window events
-                    gWindow.handleEvent( e );
+                    //Handle input for the dot
+                    dot.handleEvent( e );
                 }
 
-                //Only draw when not minimized
-                if( !gWindow.isMinimized() )
-                {
-                    //Clear screen
-                    SDL_SetRenderDrawColor( gRenderer, 0xFF, 0xFF, 0xFF, 0xFF );
-                    SDL_RenderClear( gRenderer );
+                //Move the dot
+                dot.move();
 
-                    //Render text textures
-                    gSceneTexture.render( ( gWindow.getWidth() - gSceneTexture.getWidth() ) / 2, ( gWindow.getHeight() - gSceneTexture.getHeight() ) / 2 );
+                //Clear screen
+                SDL_SetRenderDrawColor( gRenderer, 0xFF, 0xFF, 0xFF, 0xFF );
+                SDL_RenderClear( gRenderer );
 
-                    //Update screen
-                    SDL_RenderPresent( gRenderer );
-                }
+                //Render objects
+                dot.render();
+
+                //Update screen
+                SDL_RenderPresent( gRenderer );
             }
         }
     }
