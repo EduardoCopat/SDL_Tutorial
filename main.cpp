@@ -6,7 +6,10 @@ and may not be redistributed without written permission.*/
 #include <SDL_image.h>
 #include <stdio.h>
 #include <string>
-#include <vector>
+
+//The dimensions of the level
+const int LEVEL_WIDTH = 1280;
+const int LEVEL_HEIGHT = 960;
 
 //Screen dimension constants
 const int SCREEN_WIDTH = 640;
@@ -67,22 +70,23 @@ public:
     static const int DOT_HEIGHT = 20;
 
     //Maximum axis velocity of the dot
-    static const int DOT_VEL = 1;
+    static const int DOT_VEL = 10;
 
     //Initializes the variables
-    Dot( int x, int y );
+    Dot();
 
     //Takes key presses and adjusts the dot's velocity
     void handleEvent( SDL_Event& e );
 
-    //Moves the dot and checks collision
-    void move( std::vector<SDL_Rect>& otherColliders );
+    //Moves the dot
+    void move();
 
-    //Shows the dot on the screen
-    void render();
+    //Shows the dot on the screen relative to the camera
+    void render( int camX, int camY );
 
-    //Gets the collision boxes
-    std::vector<SDL_Rect>& getColliders();
+    //Position accessors
+    int getPosX();
+    int getPosY();
 
 private:
     //The X and Y offsets of the dot
@@ -90,12 +94,6 @@ private:
 
     //The velocity of the dot
     int mVelX, mVelY;
-
-    //Dot's collision boxes
-    std::vector<SDL_Rect> mColliders;
-
-    //Moves the collision boxes relative to the dot's offset
-    void shiftColliders();
 };
 
 //Starts up SDL and creates window
@@ -107,9 +105,6 @@ bool loadMedia();
 //Frees media and shuts down SDL
 void close();
 
-//Box set collision detector
-bool checkCollision( std::vector<SDL_Rect>& a, std::vector<SDL_Rect>& b );
-
 //The window we'll be rendering to
 SDL_Window* gWindow = NULL;
 
@@ -118,6 +113,7 @@ SDL_Renderer* gRenderer = NULL;
 
 //Scene textures
 LTexture gDotTexture;
+LTexture gBGTexture;
 
 LTexture::LTexture()
 {
@@ -205,7 +201,7 @@ bool LTexture::loadFromRenderedText( std::string textureText, SDL_Color textColo
 		printf( "Unable to render text surface! SDL_ttf Error: %s\n", TTF_GetError() );
 	}
 
-	
+
 	//Return success
 	return mTexture != NULL;
 }
@@ -267,55 +263,15 @@ int LTexture::getHeight()
     return mHeight;
 }
 
-Dot::Dot( int x, int y )
+Dot::Dot()
 {
     //Initialize the offsets
-    mPosX = x;
-    mPosY = y;
-
-    //Create the necessary SDL_Rects
-    mColliders.resize( 11 );
+    mPosX = 0;
+    mPosY = 0;
 
     //Initialize the velocity
     mVelX = 0;
     mVelY = 0;
-
-    //Initialize the collision boxes' width and height
-    mColliders[ 0 ].w = 6;
-    mColliders[ 0 ].h = 1;
-
-    mColliders[ 1 ].w = 10;
-    mColliders[ 1 ].h = 1;
-
-    mColliders[ 2 ].w = 14;
-    mColliders[ 2 ].h = 1;
-
-    mColliders[ 3 ].w = 16;
-    mColliders[ 3 ].h = 2;
-
-    mColliders[ 4 ].w = 18;
-    mColliders[ 4 ].h = 2;
-
-    mColliders[ 5 ].w = 20;
-    mColliders[ 5 ].h = 6;
-
-    mColliders[ 6 ].w = 18;
-    mColliders[ 6 ].h = 2;
-
-    mColliders[ 7 ].w = 16;
-    mColliders[ 7 ].h = 2;
-
-    mColliders[ 8 ].w = 14;
-    mColliders[ 8 ].h = 1;
-
-    mColliders[ 9 ].w = 10;
-    mColliders[ 9 ].h = 1;
-
-    mColliders[ 10 ].w = 6;
-    mColliders[ 10 ].h = 1;
-
-    //Initialize colliders relative to position
-    shiftColliders();
 }
 
 void Dot::handleEvent( SDL_Event& e )
@@ -346,61 +302,43 @@ void Dot::handleEvent( SDL_Event& e )
     }
 }
 
-void Dot::move( std::vector<SDL_Rect>& otherColliders )
+void Dot::move()
 {
     //Move the dot left or right
     mPosX += mVelX;
-    shiftColliders();
 
-    //If the dot collided or went too far to the left or right
-    if( ( mPosX < 0 ) || ( mPosX + DOT_WIDTH > SCREEN_WIDTH ) || checkCollision( mColliders, otherColliders ) )
+    //If the dot went too far to the left or right
+    if( ( mPosX < 0 ) || ( mPosX + DOT_WIDTH > LEVEL_WIDTH ) )
     {
         //Move back
         mPosX -= mVelX;
-        shiftColliders();
     }
 
     //Move the dot up or down
     mPosY += mVelY;
-    shiftColliders();
 
-    //If the dot collided or went too far up or down
-    if( ( mPosY < 0 ) || ( mPosY + DOT_HEIGHT > SCREEN_HEIGHT ) || checkCollision( mColliders, otherColliders ) )
+    //If the dot went too far up or down
+    if( ( mPosY < 0 ) || ( mPosY + DOT_HEIGHT > LEVEL_HEIGHT ) )
     {
         //Move back
         mPosY -= mVelY;
-        shiftColliders();
     }
 }
 
-void Dot::render()
+void Dot::render( int camX, int camY )
 {
-    //Show the dot
-    gDotTexture.render( mPosX, mPosY );
+    //Show the dot relative to the camera
+    gDotTexture.render( mPosX - camX, mPosY - camY );
 }
 
-void Dot::shiftColliders()
+int Dot::getPosX()
 {
-    //The row offset
-    int r = 0;
-
-    //Go through the dot's collision boxes
-    for( int set = 0; set < mColliders.size(); ++set )
-    {
-        //Center the collision box
-        mColliders[ set ].x = mPosX + ( DOT_WIDTH - mColliders[ set ].w ) / 2;
-
-        //Set the collision box at its row offset
-        mColliders[ set ].y = mPosY + r;
-
-        //Move the row offset down the height of the collision box
-        r += mColliders[ set ].h;
-    }
+    return mPosX;
 }
 
-std::vector<SDL_Rect>& Dot::getColliders()
+int Dot::getPosY()
 {
-    return mColliders;
+    return mPosY;
 }
 
 bool init()
@@ -469,6 +407,13 @@ bool loadMedia()
         success = false;
     }
 
+    //Load background texture
+    if( !gBGTexture.loadFromFile( "resources/bg.png" ) )
+    {
+        printf( "Failed to load background texture!\n" );
+        success = false;
+    }
+
     return success;
 }
 
@@ -476,8 +421,9 @@ void close()
 {
     //Free loaded images
     gDotTexture.free();
+    gBGTexture.free();
 
-    //Destroy window	
+    //Destroy window
     SDL_DestroyRenderer( gRenderer );
     SDL_DestroyWindow( gWindow );
     gWindow = NULL;
@@ -486,45 +432,6 @@ void close()
     //Quit SDL subsystems
     IMG_Quit();
     SDL_Quit();
-}
-
-bool checkCollision( std::vector<SDL_Rect>& a, std::vector<SDL_Rect>& b )
-{
-    //The sides of the rectangles
-    int leftA, leftB;
-    int rightA, rightB;
-    int topA, topB;
-    int bottomA, bottomB;
-
-    //Go through the A boxes
-    for( int Abox = 0; Abox < a.size(); Abox++ )
-    {
-        //Calculate the sides of rect A
-        leftA = a[ Abox ].x;
-        rightA = a[ Abox ].x + a[ Abox ].w;
-        topA = a[ Abox ].y;
-        bottomA = a[ Abox ].y + a[ Abox ].h;
-
-        //Go through the B boxes
-        for( int Bbox = 0; Bbox < b.size(); Bbox++ )
-        {
-            //Calculate the sides of rect B
-            leftB = b[ Bbox ].x;
-            rightB = b[ Bbox ].x + b[ Bbox ].w;
-            topB = b[ Bbox ].y;
-            bottomB = b[ Bbox ].y + b[ Bbox ].h;
-
-            //If no sides from A are outside of B
-            if( ( ( bottomA <= topB ) || ( topA >= bottomB ) || ( rightA <= leftB ) || ( leftA >= rightB ) ) == false )
-            {
-                //A collision is detected
-                return true;
-            }
-        }
-    }
-
-    //If neither set of collision boxes touched
-    return false;
 }
 
 int main( int argc, char* args[] )
@@ -550,10 +457,10 @@ int main( int argc, char* args[] )
             SDL_Event e;
 
             //The dot that will be moving around on the screen
-            Dot dot( 0, 0 );
+            Dot dot;
 
-            //The dot that will be collided against
-            Dot otherDot( SCREEN_WIDTH / 4, SCREEN_HEIGHT / 4 );
+            //The camera area
+            SDL_Rect camera = { 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT };
 
             //While application is running
             while( !quit )
@@ -571,16 +478,40 @@ int main( int argc, char* args[] )
                     dot.handleEvent( e );
                 }
 
-                //Move the dot and check collision
-                dot.move( otherDot.getColliders() );
+                //Move the dot
+                dot.move();
+
+                //Center the camera over the dot
+                camera.x = ( dot.getPosX() + Dot::DOT_WIDTH / 2 ) - SCREEN_WIDTH / 2;
+                camera.y = ( dot.getPosY() + Dot::DOT_HEIGHT / 2 ) - SCREEN_HEIGHT / 2;
+
+                //Keep the camera in bounds
+                if( camera.x < 0 )
+                {
+                    camera.x = 0;
+                }
+                if( camera.y < 0 )
+                {
+                    camera.y = 0;
+                }
+                if( camera.x > LEVEL_WIDTH - camera.w )
+                {
+                    camera.x = LEVEL_WIDTH - camera.w;
+                }
+                if( camera.y > LEVEL_HEIGHT - camera.h )
+                {
+                    camera.y = LEVEL_HEIGHT - camera.h;
+                }
 
                 //Clear screen
                 SDL_SetRenderDrawColor( gRenderer, 0xFF, 0xFF, 0xFF, 0xFF );
                 SDL_RenderClear( gRenderer );
 
-                //Render dots
-                dot.render();
-                otherDot.render();
+                //Render background
+                gBGTexture.render( 0, 0, &camera );
+
+                //Render objects
+                dot.render( camera.x, camera.y );
 
                 //Update screen
                 SDL_RenderPresent( gRenderer );
